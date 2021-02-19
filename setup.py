@@ -17,9 +17,11 @@ class _ConfigParser(configparser.ConfigParser):
 # build time dependancy
 try:
     from Cython.Distutils import build_ext
+    redtoreg_pyx = 'redtoreg.pyx'
     g2clib_pyx  = 'g2clib.pyx'
 except ImportError:
     from distutils.command.build_ext import build_ext
+    redtoreg_pyx = 'redtoreg.c'
     g2clib_pyx  = 'g2clib.c'
 
 class NumpyBuildExtCommand(build_ext):
@@ -42,6 +44,8 @@ config = _ConfigParser()
 if os.path.exists(setup_cfg):
     sys.stdout.write('reading from setup.cfg...')
     config.read(setup_cfg)
+packages_to_install = config.getq(
+    "install_options", "packages_to_install", ["pygrib","ncepgrib2"])
 jasper_dir = config.getq(
     "directories", "jasper_dir", environ.get('JASPER_DIR'))
 jasper_libdir = config.getq(
@@ -54,18 +58,15 @@ png_libdir = config.getq(
     "directories", "png_libdir", environ.get('PNG_LIBDIR'))
 png_incdir = config.getq(
     "directories", "png_incdir", environ.get('PNG_INCDIR'))
-openjpeg_dir = config.getq(
-    "directories", "openjpeg_dir", environ.get('OPENJPEG_DIR'))
-openjpeg_libdir = config.getq(
-    "directories", "openjpeg_libdir", environ.get('OPENJPEG_LIBDIR'))
-openjpeg_incdir = config.getq(
-    "directories", "openjpeg_incdir", environ.get('OPENJPEG_INCDIR'))
 zlib_dir = config.getq(
     "directories", "zlib_dir", environ.get('ZLIB_DIR'))
 zlib_libdir = config.getq(
     "directories", "zlib_libdir", environ.get('ZLIB_LIBDIR'))
 zlib_incdir = config.getq(
     "directories", "zlib_incdir", environ.get('ZLIB_INCDIR'))
+# where to install man pages?
+man_dir = config.getq(
+    "directories", "man_dir", environ.get('MAN_DIR'))
 
 libraries=[]
 libdirs=[]
@@ -79,14 +80,6 @@ if jasper_libdir is None and jasper_dir is not None:
 if jasper_incdir is None and jasper_dir is not None:
     incdirs.append(os.path.join(jasper_dir,'include'))
     incdirs.append(os.path.join(jasper_dir,'include/jasper'))
-
-if openjpeg_dir is not None or openjpeg_libdir is not None:
-    libraries.append("openjpeg")
-if openjpeg_libdir is None and openjpeg_dir is not None:
-    libdirs.append(os.path.join(openjpeg_dir,'lib'))
-    libdirs.append(os.path.join(openjpeg_dir,'lib64'))
-if openjpeg_incdir is None and openjpeg_dir is not None:
-    incdirs.append(os.path.join(openjpeg_dir,'include'))
 
 if png_dir is not None or png_libdir is not None:
     libraries.append("png")
@@ -131,6 +124,32 @@ runtime_libdirs = libdirs if os.name != "nt" else None
 g2clibext = Extension("g2clib",g2clib_deps,include_dirs=incdirs,\
             library_dirs=libdirs,libraries=libraries,runtime_library_dirs=runtime_libdirs,
             define_macros=macros)
+redtoregext =\
+Extension("redtoreg",[redtoreg_pyx])
+
+# man pages installed in man_dir/man1
+if man_dir is not None:
+    manpages = glob.glob(os.path.join('man','*.1'))
+    data_files = [(os.path.join(man_dir,'man1'), manpages)]
+# if man_dir not set, man pages not installed
+else:
+    data_files = None
+
+install_scripts = []
+install_ext_modules = []
+install_py_modules = []
+
+if "ncepgrib2" in packages_to_install:
+    install_ext_modules += [g2clibext,redtoregext]
+    install_py_modules += ["ncepgrib2"]
+
+# Make sure only 1 instance of redtoregext exists in install_ext_modules
+install_ext_modules = list(set(install_ext_modules))
+
+# Import README.md as PyPi long_description
+this_directory = os.path.abspath(os.path.dirname(__file__))
+with open(os.path.join(this_directory, 'README.md')) as f:
+    long_description = f.read()
 
 install_requires = ["numpy"]
 
@@ -145,23 +164,27 @@ except ImportError:
 
 setup(name = "ncepgrib2",
       version = "2.1",
-      description       = "Python interface to NCEP grib2 library",
-      author            = "Jeff Whitaker",
-      author_email      = "jeffrey.s.whitaker@noaa.gov",
-      url               = "https://github.com/jswhit/ncepgrib2",
-      download_url      = "http://github.com/jswhit/ncepgrib2",
+      description       = "Python module for reading/writing GRIB files using NCEP g2c",
+      author            = "",
+      author_email      = "",
+      url               = "",
       classifiers       = ["Development Status :: 4 - Beta",
+                           "Programming Language :: Python :: 2",
+                           "Programming Language :: Python :: 2.6",
                            "Programming Language :: Python :: 2.7",
+                           "Programming Language :: Python :: 3",
+                           "Programming Language :: Python :: 3.3",
+                           "Programming Language :: Python :: 3.4",
                            "Programming Language :: Python :: 3.5",
                            "Programming Language :: Python :: 3.6",
-                           "Programming Language :: Python :: 3.7",
-                           "Programming Language :: Python :: 3.8",
-                           "Programming Language :: Python :: 3.9",
                            "Intended Audience :: Science/Research",
                            "License :: OSI Approved",
                            "Topic :: Software Development :: Libraries :: Python Modules"],
       cmdclass          = cmdclass,
-      ext_modules       = [g2clibext],
-      py_modules        = ["ncepgrib2"],
-      long_description  = "python interface to NCEP grib2 library",
-      install_requires  = ["numpy"])
+      scripts           = install_scripts,
+      ext_modules       = install_ext_modules,
+      py_modules        = install_py_modules,
+      data_files        = data_files,
+      long_description  = long_description,
+      long_description_content_type = 'text/markdown',
+      install_requires  = install_requires)
